@@ -1,6 +1,6 @@
 # Nistula Guest Message Handler
 
-**For:** Shamique Khan | **Assessment:** Nistula Summer Technology Internship 2026  
+**From:** Shamique Khan | **Assessment:** Nistula Summer Technology Internship 2026  
 **Stack:** Python (FastAPI) + PostgreSQL + Claude API
 
 ## Overview
