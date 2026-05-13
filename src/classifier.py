@@ -13,6 +13,15 @@ CLASSIFICATION_RULES: list[tuple[QueryType, list[str]]] = [
         ],
     ),
     (
+        "special_request",
+        [
+            "early check in", "early check-in", "late check in", "late check-in",
+            "airport transfer", "airport pickup", "airport drop", "pickup", "drop",
+            "birthday", "anniversary", "decoration", "extra bed", "cot", "baby",
+            "chef", "cook", "meal", "breakfast", "dinner",
+        ],
+    ),
+    (
         "post_sales_checkin",
         [
             "check in", "check-in", "checkin", "check out", "check-out", "checkout",
@@ -21,11 +30,9 @@ CLASSIFICATION_RULES: list[tuple[QueryType, list[str]]] = [
         ],
     ),
     (
-        "special_request",
+        "pre_sales_availability",
         [
-            "early check", "late check", "airport transfer", "pickup", "drop",
-            "birthday", "anniversary", "decoration", "extra bed", "cot", "baby",
-            "chef", "cook", "meal", "breakfast", "dinner",
+            "available", "availability", "book", "booking", "dates", "stay",
         ],
     ),
     (
@@ -33,14 +40,6 @@ CLASSIFICATION_RULES: list[tuple[QueryType, list[str]]] = [
         [
             "rate", "price", "cost", "charge", "fee", "how much", "per night",
             "total", "amount", "quote", "pricing", "adult", "person",
-        ],
-    ),
-    (
-        "pre_sales_availability",
-        [
-            "available", "availability", "book", "booking", "dates", "stay",
-            "april", "may", "june", "july", "august", "september",
-            "october", "november", "december", "january", "february", "march",
         ],
     ),
     (

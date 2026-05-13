@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.models import InboundMessage, UnifiedMessage, WebhookResponse
 from src.classifier import classify_query_details
@@ -29,6 +30,15 @@ app = FastAPI(
     description="Receives guest messages, classifies them, and drafts AI replies.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# Allow the interactive test dashboard (or other local tools) to call this API from the browser.
+# In production, restrict allow_origins to trusted origins instead of "*".
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
