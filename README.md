@@ -1,50 +1,63 @@
 # Nistula Guest Message Handler
 
-**From:** Shamique Khan | **Assessment:** Nistula Summer Technology Internship 2026  
-**Stack:** Python (FastAPI) + PostgreSQL + Claude API
+**Author:** Shamique Khan · **Assessment:** Nistula Summer Technology Internship 2026  
+**Stack:** Python 3.11 · FastAPI · PostgreSQL · Claude API (Sonnet 4)
 
-## Overview
+---
 
-A production-ready webhook server that:
-- Receives guest messages from multiple channels (WhatsApp, Booking.com, Airbnb, Instagram, direct)
-- Classifies query types (pre-sales availability/pricing, post-sales check-in, complaints, etc.)
-- Calls the Claude API to draft intelligent replies
-- Returns replies with confidence scores and recommended actions (auto-send, agent review, escalate)
+## What it does
 
-## Quick Start
+A webhook server that sits between guest messaging channels and the Nistula operations team. When a guest sends a message - from WhatsApp, Booking.com, Airbnb, Instagram, or the website - the server:
 
-### 1. Install dependencies
+1. Validates and normalises the incoming payload into a unified schema
+2. Classifies the query type using a priority-ordered, regex-based classifier
+3. Calls the Claude API to draft an appropriate reply with tone guidance per query type
+4. Returns a confidence score and a recommended action (`auto_send`, `agent_review`, or `escalate`)
+
+Complaints always escalate regardless of confidence score. Refund promises are blocked at the prompt layer.
+
+---
+
+## Quick start
 
 ```bash
+# 1. Create and activate a virtual environment
 python3 -m venv venv
-source venv/bin/activate      # Mac/Linux
-# venv\Scripts\activate       # Windows
+source venv/bin/activate        # Mac / Linux
+# venv\Scripts\activate         # Windows
 
+# 2. Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Configure environment
-
-Copy `.env.example` to `.env` and add your Anthropic API key:
-
-```bash
+# 3. Copy and configure the environment file
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-```
+# Add your ANTHROPIC_API_KEY to .env
 
-### 3. Start the server
-
-```bash
+# 4. Start the server
 uvicorn src.main:app --reload --port 8000
 ```
 
-Visit `http://localhost:8000/docs` for the Swagger UI.
+Swagger UI is available at `http://localhost:8000/docs`.
 
-## API Endpoints
+---
+
+## API
 
 ### `POST /webhook/message`
 
-**Request:**
+Accepts a guest message and returns a drafted reply with routing metadata.
+
+**Request**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `source` | string | yes | One of `whatsapp`, `booking_com`, `airbnb`, `instagram`, `direct` |
+| `guest_name` | string | yes | |
+| `message` | string | yes | Raw guest message text |
+| `timestamp` | ISO 8601 | yes | |
+| `booking_ref` | string | no | Required for post-sales queries |
+| `property_id` | string | no | Defaults to villa-b1 context if omitted |
+
 ```json
 {
   "source": "whatsapp",
@@ -56,97 +69,137 @@ Visit `http://localhost:8000/docs` for the Swagger UI.
 }
 ```
 
-**Response:**
+**Response**
+
+| Field | Type | Notes |
+|---|---|---|
+| `message_id` | UUID | Unique per request |
+| `query_type` | string | See classification table below |
+| `drafted_reply` | string | Claude-generated, ready to send or review |
+| `confidence_score` | float | 0.0 - 1.0; routing signal, not a truth score |
+| `action` | string | `auto_send`, `agent_review`, or `escalate` |
+
 ```json
 {
   "message_id": "550e8400-e29b-41d4-a716-446655440000",
   "query_type": "pre_sales_availability",
-  "drafted_reply": "Hi Rahul! Villa B1 is available April 20–24. Check-in is 2 PM, check-out 11 AM...",
+  "drafted_reply": "Hi Rahul! Villa B1 is available April 20-24...",
   "confidence_score": 0.92,
   "action": "auto_send"
 }
 ```
 
+Invalid payloads (wrong source, missing fields, malformed timestamp) return **HTTP 422** with Pydantic validation detail.
+
 ### `GET /health`
 
-Quick health check.
+Returns `{"status": "ok"}`. Use for uptime checks.
 
-## Project Structure
+---
 
-- **`src/models.py`** — Pydantic schemas for input validation and unified message format
-- **`src/classifier.py`** — Rule-based query type classification
-- **`src/property_context.py`** — Mock property data (replace with DB calls)
-- **`src/claude_client.py`** — Claude API integration, prompt building, confidence scoring
-- **`src/main.py`** — FastAPI application and webhook handler
-- **`tests/test_webhook.py`** — Pytest test suite
-- **`schema.sql`** — PostgreSQL database schema
+## Classification
 
-## Testing
+The classifier uses a priority-ordered, regex-based rule engine with word boundaries. Priority runs top to bottom - the first match wins.
 
-### Manual curl test
+| Priority | Query type | Triggers on | Base confidence | Action |
+|---|---|---|---|---|
+| 1 | `complaint` | "unacceptable", "not working", "refund", "terrible", ... | 0.55 | always `escalate` |
+| 2 | `special_request` | "early check-in", "late check-out", "airport pickup", "book the chef", ... | 0.80 | `auto_send` |
+| 3 | `pre_sales_availability` | "available", "availability", "free from", ... | 0.92 | `auto_send` |
+| 4 | `pre_sales_pricing` | "rate", "price", "how much", "nightly", ... | 0.90 | `auto_send` |
+| 5 | `post_sales_checkin` | "check-in", "check-out", "wifi", "password", ... | 0.93 | `auto_send` |
+| 6 | `general_enquiry` | *(fallback)* | 0.88 | `auto_send` |
 
-```bash
-curl -X POST http://localhost:8000/webhook/message \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": "whatsapp",
-    "guest_name": "Rahul Sharma",
-    "message": "Is the villa available from April 20 to 24?",
-    "timestamp": "2026-05-05T10:30:00Z",
-    "property_id": "villa-b1"
-  }'
+**Multi-intent messages** (e.g. "Is it available April 20-24? What's the rate?") resolve to the highest-priority match - availability wins over pricing because confirming dates is the gating question for any booking.
+
+### Action routing
+
+```text
+complaint               -> escalate  (always, regardless of score)
+confidence >= 0.85      -> auto_send
+confidence 0.60 - 0.84  -> agent_review
+confidence < 0.60       -> escalate
 ```
 
-### Automated tests
+---
+
+## Project structure
+
+```text
+.
+|- src/
+|  |- main.py              # FastAPI app and webhook handler
+|  |- models.py            # Pydantic schemas (input validation + unified message format)
+|  |- classifier.py        # Priority-ordered, regex-based query classifier
+|  |- property_context.py  # Mock property data (swap for DB calls in production)
+|  `- claude_client.py     # Claude API integration, prompt building, confidence scoring
+|- tests/
+|  |- test_webhook.py
+|  |- test_comprehensive.py
+|  `- test_gaps_closed.py
+|- schema.sql               # PostgreSQL schema
+|- requirements.txt
+|- .env.example
+`- README.md
+```
+
+---
+
+## Running tests
 
 ```bash
+# Install test dependencies (already in requirements.txt)
 pip install pytest pytest-asyncio httpx
-pytest tests/test_webhook.py -v
+
+# Run the full suite
+pytest -q
 ```
 
-## Design Highlights
+Current suite status: **14 tests passing**.
 
-### 1. Unified Message Schema
-All incoming messages are normalised into a single `UnifiedMessage` schema regardless of source. This simplifies downstream processing.
+---
 
-### 2. Rule-Based Classification
-Query classification uses keyword matching ordered by specificity. It's fast, transparent, and easy to debug.
+## Security
 
-### 3. Confidence Scoring Heuristic
-- Base score per query type (for example: availability 0.92, pricing 0.90, check-in 0.93, complaint 0.55)
-- Penalise short replies, hedging language, and risky promises
-- Complaints always escalate regardless of score because the emotional and operational risk is too high for automation
-- The score is a routing signal, not a truth score: high-confidence answers go out automatically, mid-confidence answers can be reviewed, and low-confidence or risky cases escalate
+**Webhook secret** - set `WEBHOOK_SECRET` in `.env` and pass `X-Webhook-Secret: <secret>` on every request. Requests without the header are rejected with 401.
 
-### 4. Security Guardrails
-- The webhook can optionally require a shared secret via `WEBHOOK_SECRET` and the `X-Webhook-Secret` header
-- Guest messages are treated as untrusted input and prompt-injection attempts are flagged for manual review
-- Availability is only confirmed for dates explicitly present in the property context
+**Prompt injection** - guest messages are treated as untrusted input. The system prompt explicitly instructs Claude not to follow instructions embedded in guest messages. Injection attempts are flagged for manual review (action: `escalate`).
 
-### 5. Tone Guidance
-Each query type gets specific tone guidance in the Claude system prompt, ensuring consistent, appropriate responses.
+**Refund guardrail** - the system prompt forbids Claude from making refund or compensation promises. Refund handling requires manager approval and is routed through the escalation queue.
 
-### 6. Property Context Injection
-Property details are formatted and injected directly into the system prompt. This is cheaper than retrieval-augmented generation and works well for small datasets.
+**Input validation** - Pydantic rejects invalid source values, missing required fields, and malformed timestamps before any processing occurs.
 
-## Key Decisions
+---
+
+## Design decisions
 
 | Decision | Rationale |
-|----------|-----------|
-| **FastAPI** | Lightweight, auto-generated Swagger docs, async support |
-| **Claude Sonnet 4** | Fast, capable, and cost-effective for message handling |
-| **Rule-based classification** | Transparent, no hallucinations, easy to audit |
-| **Confidence scoring** | Allows operators to focus on high-risk cases |
-| **Separate property file** | Easy to swap for DB calls or external API |
+|---|---|
+| Rule-based classifier | Transparent, zero hallucination risk, fast to audit and iterate |
+| Availability before pricing in priority chain | Confirming dates is the prerequisite for any pricing discussion |
+| Special request before generic check-in | Prevents "early check-in" from being swallowed by the check-in keyword |
+| Complaints always escalate | Financial and legal risk too high for automation regardless of confidence |
+| Confidence as routing signal | The score determines human-in-the-loop level, not reply accuracy |
+| Property context in system prompt | Cheaper than RAG for small, stable property datasets |
+| `claude-sonnet-4` | Balances capability, latency (~2s), and API cost for this use case |
 
-## Next Steps
+---
 
-1. **Database:** Replace `PROPERTY_CONTEXT` with PostgreSQL queries
-2. **Logging:** Add structured logging (JSON to CloudWatch or similar)
-3. **Webhooks:** Integrate with actual Booking.com, Airbnb APIs
-4. **Metrics:** Track confidence scores, action distributions, response times
-5. **Fine-tuning:** Build a dataset of actual messages + preferred replies; fine-tune a model
+## Known issues
 
-## Author
+These are documented bugs in the previous rule-based classifier, included transparently:
 
-Shamique Khan — Nistula Summer Technology Internship 2026
+| # | Description | Status |
+|---|---|---|
+| 7 | "Early check-in" was classified as `post_sales_checkin` instead of `special_request` | **Fixed** - special request patterns now take priority |
+| 8 | Multi-intent messages (availability + pricing) returned `pre_sales_pricing` | **Fixed** - availability is checked before pricing in the classifier chain |
+
+---
+
+## Next steps
+
+1. **Database** - replace `property_context.py` with PostgreSQL queries using the provided `schema.sql`
+2. **Structured logging** - JSON logs to CloudWatch or Datadog; track `query_type`, `action`, `confidence_score`, and response time per request
+3. **Channel integrations** - connect to real Booking.com, Airbnb, and WhatsApp Business APIs
+4. **Escalation queue** - build the agent dashboard that receives escalated messages and lets managers review, edit, and send drafted replies
+5. **Fine-tuning** - collect a dataset of actual messages and preferred replies; fine-tune a smaller model for faster, cheaper inference on common query types
