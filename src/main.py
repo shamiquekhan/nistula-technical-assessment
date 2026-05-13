@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.models import InboundMessage, UnifiedMessage, WebhookResponse
 from src.classifier import classify_query_details
 from src.claude_client import draft_reply
+from src.recurring_issues import tracker
 
 load_dotenv()
 
@@ -114,7 +115,28 @@ async def handle_message(payload: InboundMessage):
             detail=f"Claude API error: {str(e)}"
         )
 
-    # 5. Return structured response
+    # 5. Flag recurring complaint patterns for operations visibility.
+    if query_type == "complaint":
+        is_recurring, count, issue_signature = tracker.record_complaint(
+            payload.property_id,
+            payload.message,
+            payload.timestamp,
+        )
+        if is_recurring:
+            logger.warning(
+                "Recurring complaint detected: property=%s issue=%s count=%d",
+                payload.property_id or "unknown_property",
+                issue_signature,
+                count,
+            )
+            action = "escalate"
+            drafted_reply = (
+                f"{drafted_reply}\n\n"
+                "We have flagged this as a recurring issue at the property and escalated "
+                "it to our operations lead for immediate follow-up."
+            )
+
+    # 6. Return structured response
     return WebhookResponse(
         message_id=message_id,
         query_type=query_type,
