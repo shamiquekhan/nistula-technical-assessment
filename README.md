@@ -7,7 +7,7 @@
 
 ## What it does
 
-A webhook server that sits between guest messaging channels and the Nistula operations team. When a guest sends a message - from WhatsApp, Booking.com, Airbnb, Instagram, or the website - the server:
+A webhook server that sits between guest messaging channels and the Hotel operations team. When a guest sends a message - from WhatsApp, Booking.com, Airbnb, Instagram, or the website - the server:
 
 1. Validates and normalises the incoming payload into a unified schema
 2. Classifies the query type using a priority-ordered, regex-based classifier
