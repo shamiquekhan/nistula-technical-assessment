@@ -1,6 +1,6 @@
-# Nistula Guest Message Handler
+# MultiChannel-Guest-Agent 
 
-**Author:** Shamique Khan · **Assessment:** Nistula Summer Technology Internship 2026  
+**Author:** Shamique Khan · 
 **Stack:** Python 3.11 · FastAPI · PostgreSQL · Claude API (Sonnet 4)
 
 ---
