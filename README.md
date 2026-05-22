@@ -1,4 +1,4 @@
-# MultiChannel-Guest-Agent 
+# AI guest-messaging automation system
 
 **Author:** Shamique Khan · 
 **Stack:** Python 3.11 · FastAPI · PostgreSQL · Claude API (Sonnet 4)
